@@ -39,7 +39,23 @@ class Graph {
   NodeID add_node(Node<NodeType> node) { nodes_.push_back(node); }
   NodeID add_node(NodeType value) { add_node(Node<NodeType>(value)); }
 
-  std::vector<Node<NodeType>> get_neighbours(NodeID node_id) {}
+  std::vector<NodeID> get_neighbours(NodeID node_id) {
+	bool directed = false;
+
+	std::vector<NodeID> neighbours;
+
+	// TODO: That could be cached
+	for (auto& edge : edges_) {
+	  if (edge.start == node_id) {
+		neighbours.push_back(edge.end);
+	  }
+	  if (!directed && edge.start == node_id) {
+		neighbours.push_back(edge.start);
+	  }
+	}
+	return neighbours;
+  }
+
   size_t neighbour_count(NodeID node_id) {
 	return get_neighbours(node_id).size();
   }
