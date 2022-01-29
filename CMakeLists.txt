@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(application_name VERSION 0.0.1)
+project(zmo-graf VERSION 0.0.1)
 
 message("")
 message("=== CONFIGURING ENVIROMENT ${CMAKE_PROJECT_NAME} - START  ===")
