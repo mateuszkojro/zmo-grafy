@@ -5,6 +5,7 @@
 #include <vector>
 
 using NodeID = size_t;
+using NeighbourList = std::vector<NodeID>;
 
 #define TODO(msg) assert(false && msg)
 
@@ -26,14 +27,82 @@ struct Edge
 };
 
 class AdjacencyList {
-  using NeighbourList = std::vector<NodeID>;
 
  public:
   const NeighbourList& get_neighbours_of(NodeID node_id) {
-	return neighbour_list_.at(node_id);
+	return neighbour_list_[node_id];
+  }
+
+  bool are_connected(NodeID n_a, NodeID n_b) {
+	auto& node_a_neighbours = neighbour_list_.at(n_a);
+	auto& node_b_neighbours = neighbour_list_.at(n_b);
+
+	// FIXME: We are sorting so we could use that this and dont need to look two
+	// times
+
+	if (std::find(node_a_neighbours.begin(), node_a_neighbours.end(), n_b)
+		!= node_a_neighbours.end()) {
+	  return true;
+	}
+
+	if (std::find(node_b_neighbours.begin(), node_b_neighbours.end(), n_a)
+		!= node_b_neighbours.end()) {
+	  return true;
+	}
+
+	return false;
+  }
+
+  void reserve(size_t node_count = 0, size_t edges_per_node = 0) {
+	neighbour_list_.reserve(node_count);
+	nodes_.reserve(node_count);
+  }
+
+  NodeID add_node(double value, NeighbourList initial_connections = {}) {
+	NodeID node_id = ++last_node_;
+	nodes_.push_back(node_id);
+	neighbour_list_[node_id] = std::move(initial_connections);
+	return node_id;
+  }
+
+  const std::vector<NodeID>& get_nodes() { return nodes_; }
+
+  void add_edge(NodeID node_a, NodeID node_b) {
+	size_t idx = 0;
+	NodeID target_node = 0;
+	if (node_a < node_b) {
+	  idx = node_a;
+	  target_node = node_b;
+	} else {
+	  idx = node_b;
+	  target_node = node_a;
+	}
+	auto& neighbours = neighbour_list_[idx];
+	if (std::find(neighbours.begin(), neighbours.end(), target_node)
+		== neighbours.end()) {
+	  neighbours.push_back(target_node);
+	}
+  }
+
+  void remove_edge(NodeID node_a, NodeID node_b) {
+	size_t idx = 0;
+	NodeID target_node = 0;
+	if (node_a < node_b) {
+	  idx = node_a;
+	  target_node = node_b;
+	} else {
+	  idx = node_b;
+	  target_node = node_a;
+	}
+	auto& neighbours = neighbour_list_[idx];
+	std::remove(neighbours.begin(), neighbours.end(), target_node);
   }
 
  private:
+  size_t edges_per_node_ = 0;// TODO: Figure out if that caching would be
+							 // working
+  NodeID last_node_ = 0;
+  std::vector<NodeID> nodes_;
   std::unordered_map<NodeID, NeighbourList> neighbour_list_;
 };
 
