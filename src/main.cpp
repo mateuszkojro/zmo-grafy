@@ -1,8 +1,21 @@
 #include <cassert>
+#include <chrono>
 #include <iostream>
-#include <stdint.h>
+#include <random>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+
+#define TIME_SCOPE(msg, content)                                               \
+  do {                                                                         \
+	auto start = std::chrono::high_resolution_clock::now();                    \
+	content auto stop = std::chrono::high_resolution_clock::now();             \
+	std::clog << msg << " took: "                                              \
+			  << std::chrono::duration_cast<std::chrono::microseconds>(        \
+					 stop - start)                                             \
+					 .count()                                                  \
+			  << "us" << std::endl;                                            \
+  } while (0)
 
 using NodeID = size_t;
 using NeighbourList = std::vector<NodeID>;
@@ -110,12 +123,14 @@ double random_double() { return static_cast<double>(rand()) / RAND_MAX; }
 
 template<class NodeType>
 class Graph {
-  bool directed = false;
+  bool directed_ = false;
 
  public:
+  //  static std::random_device rd_;
+  //  static std::mt19937 random_engine_;
+
   static Graph* make_erdos_renyi(size_t n, double p) {
 	auto* graph = new Graph<double>(n, std::ceil(n * p));
-	// OPTIMIZE: Its O(n+n^2)
 	for (size_t i = 0; i < n; i++) { graph->add_node(i); }
 	for (size_t i = 0; i < n; i++) {
 	  for (size_t j = 0; i < n; i++) {
@@ -126,7 +141,7 @@ class Graph {
 	}
 	return graph;
   }
-  static Graph* make_watts_strogatz(size_t n, size_t k) {
+  static Graph* make_watts_strogatz(size_t n, size_t k, double beta = 0.1) {
 	auto* graph = new Graph<double>(n, (n * k) / 2);
 	// OPTIMIZE: Its O(n+n^2)
 	for (size_t i = 0; i < n; i++) { graph->add_node(i); }
@@ -138,8 +153,20 @@ class Graph {
 		}
 	  }
 	}
-	TODO("There is a step 2 missing");
-	for (size_t i = 0; i < n; i++) { graph->add_node(i); }
+
+	std::uniform_int_distribution<> int_distribution(0, n);
+	for (size_t i = 0; i < n; i++) {
+	  for (size_t j = i + 1; j < i + k / 2; j++) {
+		if (random_double() < beta) {
+		  // rewire with uniform distribution and avoid self loops
+		  size_t rewire_index = rand();
+		  if (rewire_index != j) {
+			graph->remove_edge(i, j);
+			graph->add_edge(i, rewire_index);
+		  }
+		}
+	  }
+	}
 	return graph;
   }
 
@@ -158,36 +185,18 @@ class Graph {
   }
 
   explicit Graph(size_t future_nodes_count = 0, size_t future_edges_count = 0) {
-	nodes_.reserve(future_nodes_count);
-	edges_.reserve(future_edges_count);
+	content_.reserve(future_nodes_count, future_edges_count);
   }
-  void add_edge(NodeID n_a, NodeID n_b) {
-	TODO("Check if this edge is already in the graph and if permutation is "
-		 "already in graph");
-	edges_.push_back(Edge{n_a, n_b});
-  }
+  void add_edge(NodeID n_a, NodeID n_b) { content_.add_edge(n_a, n_b); }
 
-  NodeID add_node(Node<NodeType> node) {
-	nodes_.push_back(node);
-	return nodes_.size() - 1;
-  }
+  NodeID add_node(Node<NodeType> node) { return content_.add_node(0); }
   NodeID add_node(NodeType value) { return add_node(Node<NodeType>(value)); }
+
   void remove_node(NodeID node_id) { TODO("Not implemented"); }
-  void remove_edge(NodeID from, NodeID to) { TODO("Not implemented"); }
+  void remove_edge(NodeID from, NodeID to) { content_.remove_edge(from, to); }
 
   std::vector<NodeID> get_neighbours(NodeID node_id) {
-	std::vector<NodeID> neighbours;
-
-	// TODO: That could and should be cached
-	for (auto& edge : edges_) {
-	  if (edge.start == node_id) {
-		neighbours.push_back(edge.end);
-	  }
-	  if (!directed && edge.start == node_id) {
-		neighbours.push_back(edge.start);
-	  }
-	}
-	return neighbours;
+	return content_.get_neighbours_of(node_id);
   }
 
   size_t neighbour_count(NodeID node_id) {
@@ -195,30 +204,125 @@ class Graph {
   }
   size_t degree(NodeID node_id) { return neighbour_count(node_id); }
 
-  double global_clustering_coefficient();
-  double node_clustering_coefficient(NodeID node_id);
-  double average_clustering_coefficient();
+  double global_clustering_coefficient() {
+	uint64_t number_of_closed_triplets = 0;
+	uint64_t number_of_open_triplets = 0;
+	for (NodeID a : content_.get_nodes()) {
+	  for (NodeID b : content_.get_nodes()) {
+		for (NodeID c : content_.get_nodes()) {
+		  if (is_triplet(a, b, c)) {
+			if (is_triangle(a, b, c)) {
+			  number_of_closed_triplets++;
+			}
+			number_of_open_triplets++;
+		  }
+		}
+	  }
+	}
+	return static_cast<double>(number_of_closed_triplets)
+		   / number_of_open_triplets;
+  }
+
+  size_t count_connections(const std::vector<NodeID>& nodes) {
+	size_t number_of_connections = 0;
+	for (const auto& a : nodes) {
+	  for (const auto& b : nodes) {
+		const auto& neighbours_of_a = content_.get_neighbours_of(a);
+		if (std::find(neighbours_of_a.begin(), neighbours_of_a.end(), b)
+			!= neighbours_of_a.end()) {
+		  number_of_connections++;
+		}
+	  }
+	}
+	return number_of_connections;
+  }
+
+  double node_clustering_coefficient(NodeID node_id) {
+	const NeighbourList& neighbour_list = content_.get_neighbours_of(node_id);
+	size_t k = neighbour_list.size();
+
+	if (k == 0 || k == 1)
+	  return 0;
+
+	size_t number_of_links_between_neighbours =
+		count_connections(neighbour_list);
+	return static_cast<double>(number_of_links_between_neighbours)
+		   / (k * (k - 1));
+  }
+
+  double average_clustering_coefficient() {
+	double sum_of_coeficients = 0;
+	for (const NodeID& node : content_.get_nodes())
+	  sum_of_coeficients += node_clustering_coefficient(node);
+
+	return sum_of_coeficients / content_.get_nodes().size();
+  }
+
+  bool is_triangle(NodeID n_a, NodeID n_b, NodeID n_c) {
+	assert(n_a != n_b && n_b != n_c && n_c != n_a
+		   && "Triangle from the same nodes does not make sense");
+
+	bool a_conected_b = content_.are_connected(n_a, n_b);
+	bool b_conected_c = content_.are_connected(n_b, n_c);
+	bool c_conected_a = content_.are_connected(n_c, n_a);
+
+	return a_conected_b || b_conected_c || c_conected_a;
+  }
+
+  bool is_triplet(NodeID n_a, NodeID n_b, NodeID n_c) {
+	assert(n_a != n_b && n_b != n_c && n_c != n_a
+		   && "Triplet from the same nodes does not make sense");
+	bool a_conected_b = content_.are_connected(n_a, n_b);
+	bool b_conected_c = content_.are_connected(n_b, n_c);
+	bool c_conected_a = content_.are_connected(n_c, n_a);
+
+	if (a_conected_b || c_conected_a) {
+	  return true;
+	}
+
+	if (b_conected_c || a_conected_b) {
+	  return true;
+	}
+
+	if (c_conected_a || b_conected_c) {
+	  return true;
+	}
+
+	return false;
+  }
 
   size_t radius();
   size_t diameter();
 
  private:
-  std::vector<Node<NodeType>> nodes_;
-  std::vector<Edge> edges_;
+  AdjacencyList content_;
 };
 
 int main() {
-  size_t n = 10'000;
+  size_t n = 25'000;
 
-  std::clog << "Making barabasi albert:";
-  auto* ba = Graph<double>::make_barabasi_albert(n);
-  std::clog << " done" << std::endl;
-  std::clog << "Making watts srogatz:";
-  auto* ws = Graph<double>::make_watts_strogatz(n, 10);
-  std::clog << " done" << std::endl;
-  std::clog << "Making erdos renyi:";
-  auto* er = Graph<double>::make_erdos_renyi(n, 0.1);
-  std::clog << " done" << std::endl;
+  TIME_SCOPE("barabasi albert", {
+	std::clog << "Making barabasi albert:";
+	auto* ba = Graph<double>::make_barabasi_albert(n);
+	std::clog << " done" << std::endl;
+  });
 
+  TIME_SCOPE("erdos renyi", {
+	std::clog << "Making erdos renyi:";
+	auto* er = Graph<double>::make_erdos_renyi(n, 0.1);
+	std::clog << " done" << std::endl;
+  });
+
+  Graph<double>* ws;
+  TIME_SCOPE("watts srogatz", {
+	std::clog << "Making watts srogatz:";
+	ws = Graph<double>::make_watts_strogatz(n, 10);
+	std::clog << " done" << std::endl;
+  });
+
+  double clustering_coef = 0;
+  TIME_SCOPE("Clustering coef",
+			 { clustering_coef = ws->average_clustering_coefficient(); });
+  std::cout << "Average clustering coef: " << clustering_coef << std::endl;
   return 0;
 }
