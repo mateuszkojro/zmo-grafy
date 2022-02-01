@@ -204,6 +204,18 @@ class Graph {
   }
   size_t degree(NodeID node_id) { return neighbour_count(node_id); }
 
+  size_t distance_between(NodeID from, NodeID to) { return 0; }
+
+  size_t acentricity(NodeID node_id) {
+	size_t max_distance = 0;
+	for (const auto& node : content_.get_nodes()) {
+	  if (size_t d = distance_between(node_id, node); d > max_distance) {
+		max_distance = d;
+	  }
+	}
+	return max_distance;
+  }
+
   double global_clustering_coefficient() {
 	uint64_t number_of_closed_triplets = 0;
 	uint64_t number_of_open_triplets = 0;
@@ -291,8 +303,29 @@ class Graph {
 	return false;
   }
 
-  size_t radius();
-  size_t diameter();
+  size_t radius() {
+	size_t min_accentricity = SIZE_MAX;
+	for (const auto& node : content_.get_nodes()) {
+	  size_t a = acentricity(node);
+	  if (a < min_accentricity) {
+		min_accentricity = a;
+	  }
+	}
+	return min_accentricity;
+  }
+
+  size_t diameter() {
+	size_t max_distance = 0;
+	for (const auto& node_a : content_.get_nodes()) {
+	  for (const auto& node_b : content_.get_nodes()) {
+		size_t d = distance_between(node_a, node_b);
+		if (d > max_distance) {
+		  max_distance = d;
+		}
+	  }
+	}
+	return max_distance;
+  }
 
  private:
   AdjacencyList content_;
